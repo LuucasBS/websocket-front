@@ -1,0 +1,41 @@
+<main class="min-h-screen bg-neutral-950 px-4 py-8 text-zinc-100">
+  <section
+    class="mx-auto mt-16 w-full max-w-md rounded-2xl border border-emerald-300/20 bg-zinc-900/70 p-6 shadow-[0_0_40px_rgba(0,229,255,0.12)] backdrop-blur"
+  >
+    <h1 class="text-2xl font-semibold tracking-tight text-cyan-300">Realtime Chat</h1>
+    <p class="mt-2 text-sm text-zinc-400">Entre com usuario/senha predefinidos (alice, bob ou carol / 123456).</p>
+
+    <form class="mt-6 space-y-4" [formGroup]="form" (ngSubmit)="submit()">
+      <label class="block">
+        <span class="mb-1 block text-xs uppercase tracking-wide text-zinc-400">Usuario</span>
+        <input
+          type="text"
+          formControlName="username"
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none transition focus:border-cyan-400"
+          placeholder="alice"
+        />
+      </label>
+
+      <label class="block">
+        <span class="mb-1 block text-xs uppercase tracking-wide text-zinc-400">Senha</span>
+        <input
+          type="password"
+          formControlName="password"
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+          placeholder="******"
+        />
+      </label>
+
+      @if (errorMessage()) {
+        <p class="rounded-md border border-red-500/40 bg-red-900/20 px-3 py-2 text-sm text-red-200">{{ errorMessage() }}</p>
+      }
+
+      <button
+        type="submit"
+        class="w-full rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-2 font-semibold text-black transition disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {{ loading() ? 'Entrando...' : 'Entrar' }}
+      </button>
+    </form>
+  </section>
+</main>

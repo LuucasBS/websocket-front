@@ -1,0 +1,24 @@
+<article class="max-w-[85%] sm:max-w-[70%]" [class.ml-auto]="isOwn()">
+  <div
+    class="rounded-2xl px-3 py-2 text-sm leading-relaxed shadow"
+    [class.bg-cyan-500]="isOwn()"
+    [class.text-black]="isOwn()"
+    [class.bg-zinc-800]="!isOwn()"
+    [class.text-zinc-100]="!isOwn()"
+  >
+    <p class="whitespace-pre-wrap break-words font-mono">{{ message().content }}</p>
+  </div>
+
+  <div class="mt-1 flex items-center gap-1 text-[11px] text-zinc-500" [class.justify-end]="isOwn()">
+    <time>{{ message().timestamp | date: 'HH:mm' }}</time>
+    @if (isOwn()) {
+      @if (message().status === 'READ') {
+        <span class="text-emerald-300">&#10003;&#10003;</span>
+      } @else if (message().status === 'DELIVERED') {
+        <span class="text-cyan-300">&#10003;&#10003;</span>
+      } @else {
+        <span>&#10003;</span>
+      }
+    }
+  </div>
+</article>

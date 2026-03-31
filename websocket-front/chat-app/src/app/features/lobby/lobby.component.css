@@ -1,0 +1,21 @@
+:host {
+  display: block;
+}
+
+.pulse-chat-request {
+  animation: request-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes request-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.4);
+  }
+
+  70% {
+    box-shadow: 0 0 0 8px rgba(0, 229, 255, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0);
+  }
+}
