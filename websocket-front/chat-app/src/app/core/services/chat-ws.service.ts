@@ -66,12 +66,13 @@ export class ChatWebSocketService {
   private heartbeatSubscription?: Subscription;
   private reconnectSubscription?: Subscription;
   private onlineUsersSubscription?: Subscription;
-  private chatRequestsSubscription?: StompSubscription;
+  private userMessagesSubscription?: StompSubscription;
+  private userNotificationsSubscription?: StompSubscription;
 
   private reconnectAttempts = 0;
   private readonly maxBackoffMs = 30000;
   private readonly pendingQueue: OutboundWsEvent[] = [];
-  private readonly conversationSubscriptions = new Map<string, { messages: StompSubscription; typing: StompSubscription }>();
+  private readonly conversationSubscriptions = new Set<string>();
   private readonly conversationByUserId = signal<Record<string, string>>({});
   private readonly userByConversationId = signal<Record<string, string>>({});
 
@@ -112,7 +113,7 @@ export class ChatWebSocketService {
         this.reconnectAttempts = 0;
         this.startHeartbeat();
         this.startOnlineUsersPolling();
-        this.subscribeChatRequests();
+        this.subscribeUserQueues();
         this.flushQueue();
         this.stompClient?.publish({ destination: '/app/user.online', body: '{}' });
       },
@@ -126,13 +127,10 @@ export class ChatWebSocketService {
     this.heartbeatSubscription?.unsubscribe();
     this.reconnectSubscription?.unsubscribe();
     this.onlineUsersSubscription?.unsubscribe();
-    this.chatRequestsSubscription?.unsubscribe();
-    this.chatRequestsSubscription = undefined;
-
-    this.conversationSubscriptions.forEach((subscription) => {
-      subscription.messages.unsubscribe();
-      subscription.typing.unsubscribe();
-    });
+    this.userMessagesSubscription?.unsubscribe();
+    this.userNotificationsSubscription?.unsubscribe();
+    this.userMessagesSubscription = undefined;
+    this.userNotificationsSubscription = undefined;
     this.conversationSubscriptions.clear();
     this.stompClient?.deactivate();
     this.stompClient = null;
@@ -176,7 +174,6 @@ export class ChatWebSocketService {
 
   sendMessage(payload: ChatMessage): void {
     this.emitOrQueue({ type: 'MESSAGE', payload });
-    this.pushMessageIntoStream(payload);
   }
 
   sendChatRequest(from: User, toUserId: string): void {
@@ -281,27 +278,7 @@ export class ChatWebSocketService {
 
     this.conversationByUserId.update((value) => ({ ...value, [withUserId]: conversationId }));
     this.userByConversationId.update((value) => ({ ...value, [conversationId]: withUserId }));
-
-    const messagesSubscription = this.stompClient.subscribe(`/topic/conversations/${conversationId}`, (frame) => {
-      const raw = JSON.parse(frame.body) as BackendMessageEvent;
-      const message = this.mapIncomingMessage(raw, withUserId);
-      this.pushMessageIntoStream(message);
-      this.eventBus.next({ type: 'MESSAGE', payload: message });
-    });
-
-    const typingSubscription = this.stompClient.subscribe(`/topic/conversations/${conversationId}/typing`, (frame) => {
-      const raw = JSON.parse(frame.body) as BackendTypingEvent;
-      this._typingByUserId.update((value) => ({
-        ...value,
-        [raw.fromUserId]: raw.typing
-      }));
-      this.eventBus.next({ type: 'TYPING', payload: { userId: raw.fromUserId, isTyping: raw.typing } });
-    });
-
-    this.conversationSubscriptions.set(conversationId, {
-      messages: messagesSubscription,
-      typing: typingSubscription
-    });
+    this.conversationSubscriptions.add(conversationId);
   }
 
   private ensureConversation(withUserId: string): Observable<string> {
@@ -345,30 +322,109 @@ export class ChatWebSocketService {
       });
   }
 
-  private subscribeChatRequests(): void {
-    if (!this.stompClient?.connected || this.chatRequestsSubscription) {
+  private subscribeUserQueues(): void {
+    if (!this.stompClient?.connected) {
       return;
     }
 
-    this.chatRequestsSubscription = this.stompClient.subscribe('/topic/chat.requests', (frame) => {
-      const event = JSON.parse(frame.body) as BackendChatRequestEvent;
-      const me = this.authService.currentUser();
-      if (!me || event.toUserId !== me.id || event.fromUserId === me.id) {
-        return;
-      }
+    if (!this.userMessagesSubscription) {
+      this.userMessagesSubscription = this.stompClient.subscribe('/user/queue/messages', (frame) => {
+        const raw = JSON.parse(frame.body) as BackendMessageEvent;
+        const me = this.authService.currentUser();
+        const knownWithUserId = this.userByConversationId()[raw.conversationId];
+        const withUserId = raw.fromUserId === me?.id ? knownWithUserId : raw.fromUserId;
 
-      const fromUser = this._usersOnline().find((user) => user.id === event.fromUserId) ?? {
-        id: event.fromUserId,
-        username: event.fromUserId,
-        displayName: event.fromUserId,
-        online: true
-      };
+        if (!withUserId) {
+          return;
+        }
 
-      this.eventBus.next({
-        type: 'CHAT_REQUEST',
-        payload: { from: fromUser, toUserId: event.toUserId }
+        this.conversationByUserId.update((value) => ({ ...value, [withUserId]: raw.conversationId }));
+        this.userByConversationId.update((value) => ({ ...value, [raw.conversationId]: withUserId }));
+
+        const message = this.mapIncomingMessage(raw, withUserId);
+        this.pushMessageIntoStream(message);
+        this.eventBus.next({ type: 'MESSAGE', payload: message });
       });
+    }
+
+    if (!this.userNotificationsSubscription) {
+      this.userNotificationsSubscription = this.stompClient.subscribe('/user/queue/notifications', (frame) => {
+        const event = JSON.parse(frame.body) as unknown;
+
+        if (this.isChatRequestEvent(event)) {
+          this.handleChatRequest(event);
+          return;
+        }
+
+        if (this.isTypingEvent(event)) {
+          this.handleTypingEvent(event);
+        }
+      });
+    }
+  }
+
+  private isChatRequestEvent(event: unknown): event is BackendChatRequestEvent {
+    if (!event || typeof event !== 'object') {
+      return false;
+    }
+
+    const payload = event as Record<string, unknown>;
+    return (
+      payload['type'] === 'CHAT_REQUEST' &&
+      typeof payload['fromUserId'] === 'string' &&
+      typeof payload['toUserId'] === 'string'
+    );
+  }
+
+  private isTypingEvent(event: unknown): event is BackendTypingEvent {
+    if (!event || typeof event !== 'object') {
+      return false;
+    }
+
+    const payload = event as Record<string, unknown>;
+    return (
+      payload['type'] === 'TYPING' &&
+      typeof payload['conversationId'] === 'string' &&
+      typeof payload['fromUserId'] === 'string' &&
+      typeof payload['typing'] === 'boolean'
+    );
+  }
+
+  private handleChatRequest(event: BackendChatRequestEvent): void {
+    const me = this.authService.currentUser();
+    if (!me || event.toUserId !== me.id || event.fromUserId === me.id) {
+      return;
+    }
+
+    const fromUser = this._usersOnline().find((user) => user.id === event.fromUserId) ?? {
+      id: event.fromUserId,
+      username: event.fromUserId,
+      displayName: event.fromUserId,
+      online: true
+    };
+
+    this.eventBus.next({
+      type: 'CHAT_REQUEST',
+      payload: { from: fromUser, toUserId: event.toUserId }
     });
+  }
+
+  private handleTypingEvent(event: BackendTypingEvent): void {
+    const me = this.authService.currentUser();
+    if (!me || event.fromUserId === me.id) {
+      return;
+    }
+
+    const knownWithUserId = this.userByConversationId()[event.conversationId];
+    const withUserId = knownWithUserId ?? event.fromUserId;
+
+    this.conversationByUserId.update((value) => ({ ...value, [withUserId]: event.conversationId }));
+    this.userByConversationId.update((value) => ({ ...value, [event.conversationId]: withUserId }));
+    this._typingByUserId.update((value) => ({
+      ...value,
+      [event.fromUserId]: event.typing
+    }));
+    this.eventBus.next({ type: 'TYPING', payload: { userId: event.fromUserId, isTyping: event.typing } });
   }
 
   private pushMessageIntoStream(message: ChatMessage): void {
@@ -379,7 +435,10 @@ export class ChatWebSocketService {
 
     const withUserId = message.fromUserId === selfId ? message.toUserId : message.fromUserId;
     const stream = this.conversationSignal(withUserId);
-    stream.update((value) => [...value, message].slice(-200));
+    stream.update((value) => {
+      const withoutSameId = value.filter((item) => item.id !== message.id);
+      return [...withoutSameId, message].slice(-200);
+    });
   }
 
   private startHeartbeat(): void {
@@ -395,12 +454,10 @@ export class ChatWebSocketService {
     this._connected.set(false);
     this.heartbeatSubscription?.unsubscribe();
     this.onlineUsersSubscription?.unsubscribe();
-    this.chatRequestsSubscription?.unsubscribe();
-    this.chatRequestsSubscription = undefined;
-    this.conversationSubscriptions.forEach((subscription) => {
-      subscription.messages.unsubscribe();
-      subscription.typing.unsubscribe();
-    });
+    this.userMessagesSubscription?.unsubscribe();
+    this.userNotificationsSubscription?.unsubscribe();
+    this.userMessagesSubscription = undefined;
+    this.userNotificationsSubscription = undefined;
     this.conversationSubscriptions.clear();
 
     if (!this.authService.isAuthenticated()) {

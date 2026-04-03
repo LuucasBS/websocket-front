@@ -28,7 +28,11 @@ public class ConversationRepositoryAdapter implements ConversationRepository {
 
     @Override
     public Optional<Conversation> findByParticipants(UserId userAId, UserId userBId) {
-        return conversationJpaRepository.findByParticipants(userAId.value(), userBId.value()).map(conversationMapper::toDomain);
+        return conversationJpaRepository
+            .findByParticipants(userAId.value(), userBId.value())
+            .stream()
+            .findFirst()
+            .map(conversationMapper::toDomain);
     }
 
     @Override

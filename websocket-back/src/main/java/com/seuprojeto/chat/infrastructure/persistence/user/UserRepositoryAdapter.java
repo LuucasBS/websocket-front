@@ -6,9 +6,6 @@ import com.seuprojeto.chat.domain.user.UserRepository;
 import com.seuprojeto.chat.domain.user.UserStatus;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.stereotype.Component;
-
-@Component
 public class UserRepositoryAdapter implements UserRepository {
 
     private final UserJpaRepository userJpaRepository;

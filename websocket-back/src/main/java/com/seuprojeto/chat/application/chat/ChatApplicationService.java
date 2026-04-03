@@ -35,7 +35,12 @@ public class ChatApplicationService implements SendMessageUseCase, LoadHistoryUs
     public Conversation createOrGetConversation(String userAId, String userBId) {
         UserId a = UserId.of(userAId);
         UserId b = UserId.of(userBId);
-        return conversationRepository.findByParticipants(a, b).orElseGet(() -> conversationRepository.save(Conversation.create(a, b)));
+        UserId first = a.value().compareTo(b.value()) <= 0 ? a : b;
+        UserId second = a.value().compareTo(b.value()) <= 0 ? b : a;
+
+        return conversationRepository
+            .findByParticipants(first, second)
+            .orElseGet(() -> conversationRepository.save(Conversation.create(first, second)));
     }
 
     @Override

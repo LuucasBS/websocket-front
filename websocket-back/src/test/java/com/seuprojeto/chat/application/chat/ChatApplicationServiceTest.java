@@ -41,14 +41,16 @@ class ChatApplicationServiceTest {
     void shouldCreateConversationWhenNotFound() {
         UserId userA = UserId.generate();
         UserId userB = UserId.generate();
+        UserId first = userA.value().compareTo(userB.value()) <= 0 ? userA : userB;
+        UserId second = userA.value().compareTo(userB.value()) <= 0 ? userB : userA;
 
-        when(conversationRepository.findByParticipants(userA, userB)).thenReturn(Optional.empty());
+        when(conversationRepository.findByParticipants(first, second)).thenReturn(Optional.empty());
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         Conversation result = service.createOrGetConversation(userA.toString(), userB.toString());
 
-        assertEquals(userA, result.userAId());
-        assertEquals(userB, result.userBId());
+        assertEquals(first, result.userAId());
+        assertEquals(second, result.userBId());
         verify(conversationRepository).save(any());
     }
 

@@ -1,5 +1,6 @@
 package com.seuprojeto.chat.infrastructure.persistence.conversation;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,7 +14,8 @@ public interface ConversationJpaRepository extends JpaRepository<ConversationJpa
         select c from ConversationJpaEntity c
         where (c.userAId = :userA and c.userBId = :userB)
            or (c.userAId = :userB and c.userBId = :userA)
+        order by c.createdAt asc
         """
     )
-    Optional<ConversationJpaEntity> findByParticipants(@Param("userA") UUID userA, @Param("userB") UUID userB);
+    List<ConversationJpaEntity> findByParticipants(@Param("userA") UUID userA, @Param("userB") UUID userB);
 }

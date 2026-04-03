@@ -6,7 +6,7 @@ import java.util.UUID;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
-@Mapper(componentModel = "spring")
+@Mapper
 public interface UserMapper {
 
     @Mapping(target = "passwordHash", source = "password")

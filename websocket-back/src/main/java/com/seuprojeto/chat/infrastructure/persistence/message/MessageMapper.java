@@ -7,7 +7,7 @@ import com.seuprojeto.chat.domain.user.UserId;
 import java.util.UUID;
 import org.mapstruct.Mapper;
 
-@Mapper(componentModel = "spring")
+@Mapper
 public interface MessageMapper {
 
     ChatMessage toDomain(MessageJpaEntity entity);
