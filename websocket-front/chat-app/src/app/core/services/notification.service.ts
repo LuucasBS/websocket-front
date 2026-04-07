@@ -27,7 +27,7 @@ export class NotificationService {
   readonly pendingRequests = this._pendingRequests.asReadonly();
   readonly totalUnread = computed(() => Object.values(this._unreadByUser()).reduce((acc, value) => acc + value, 0));
 
-  requestPermission(): void {
+  solicitarPermissao(): void {
     if (!('Notification' in window)) {
       return;
     }
@@ -37,8 +37,8 @@ export class NotificationService {
     }
   }
 
-  showToast(title: string, body: string, userId?: string): void {
-    const id = this.randomId();
+  mostrarToast(title: string, body: string, userId?: string): void {
+    const id = this.gerarIdAleatorio();
     const toast: ToastNotification = {
       id,
       title,
@@ -50,22 +50,22 @@ export class NotificationService {
     this._toasts.update((value) => [toast, ...value].slice(0, 4));
 
     window.setTimeout(() => {
-      this.dismissToast(id);
+      this.dispensarToast(id);
     }, 4500);
   }
 
-  dismissToast(id: string): void {
+  dispensarToast(id: string): void {
     this._toasts.update((value) => value.filter((toast) => toast.id !== id));
   }
 
-  incrementUnread(userId: string): void {
+  adicionarNaoLidas(userId: string): void {
     this._unreadByUser.update((value) => ({
       ...value,
       [userId]: (value[userId] ?? 0) + 1
     }));
   }
 
-  clearUnread(userId: string): void {
+  limparNaoLidas(userId: string): void {
     this._unreadByUser.update((value) => {
       const next = { ...value };
       delete next[userId];
@@ -73,11 +73,11 @@ export class NotificationService {
     });
   }
 
-  markPendingRequest(userId: string): void {
+  marcarSolicitacaoPendente(userId: string): void {
     this._pendingRequests.update((value) => ({ ...value, [userId]: true }));
   }
 
-  clearPendingRequest(userId: string): void {
+  limparSolicitacaoPendente(userId: string): void {
     this._pendingRequests.update((value) => {
       const next = { ...value };
       delete next[userId];
@@ -85,27 +85,27 @@ export class NotificationService {
     });
   }
 
-  notifyMessage(senderName: string, body: string, userId: string): void {
-    this.showToast(`Mensagem de ${senderName}`, body, userId);
-    this.incrementUnread(userId);
+  notificarMensagem(senderName: string, body: string, userId: string): void {
+    this.mostrarToast(`Mensagem de ${senderName}`, body, userId);
+    this.adicionarNaoLidas(userId);
 
     if (document.hidden) {
-      this.dispatchNative(`Mensagem de ${senderName}`, body, { chatUserId: userId });
+      this.dispararNotificacaoNativa(`Mensagem de ${senderName}`, body, { chatUserId: userId });
     }
   }
 
-  notifyChatRequest(senderName: string, userId: string): void {
-    this.showToast('Novo pedido de conversa', `${senderName} quer conversar com voce.`, userId);
-    this.markPendingRequest(userId);
+  notificarSolicitacaoDeChat(senderName: string, userId: string): void {
+    this.mostrarToast('Novo pedido de conversa', `${senderName} quer conversar com voce.`, userId);
+    this.marcarSolicitacaoPendente(userId);
 
     if (document.hidden) {
-      this.dispatchNative('Pedido de conversa', `${senderName} enviou um pedido. Clique para aceitar.`, {
+      this.dispararNotificacaoNativa('Pedido de conversa', `${senderName} enviou um pedido. Clique para aceitar.`, {
         chatUserId: userId
       });
     }
   }
 
-  private dispatchNative(title: string, body: string, data: NativeNotificationData): void {
+  private dispararNotificacaoNativa(title: string, body: string, data: NativeNotificationData): void {
     if (!('Notification' in window) || Notification.permission !== 'granted') {
       return;
     }
@@ -126,8 +126,8 @@ export class NotificationService {
       this.ngZone.run(() => {
         if (targetUserId) {
           void this.router.navigate(['/chat', targetUserId]);
-          this.clearUnread(targetUserId);
-          this.clearPendingRequest(targetUserId);
+          this.limparNaoLidas(targetUserId);
+          this.limparSolicitacaoPendente(targetUserId);
         }
       });
 
@@ -135,7 +135,7 @@ export class NotificationService {
     };
   }
 
-  private randomId(): string {
+  private gerarIdAleatorio(): string {
     return `${Date.now()}-${Math.round(Math.random() * 100000)}`;
   }
 }

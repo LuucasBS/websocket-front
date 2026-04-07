@@ -38,40 +38,40 @@ export class AuthService {
   private readonly notifications = inject(NotificationService);
 
   private readonly _token = signal<string | null>(localStorage.getItem(TOKEN_KEY));
-  private readonly _user = signal<User | null>(this.readUserFromStorage());
+  private readonly _user = signal<User | null>(this.lerUsuarioDoStorage());
 
   readonly token = this._token.asReadonly();
   readonly currentUser = this._user.asReadonly();
   readonly isAuthenticated = computed(() => Boolean(this._token() && this._user()));
 
-  login(payload: LoginPayload): Observable<User> {
+  entrar(payload: LoginPayload): Observable<User> {
     return this.http.post<LoginResponse>(`${environment.apiUrl}/auth/login`, payload).pipe(
       catchError((error: HttpErrorResponse) => {
         if (error.status === 0) {
-          return this.localLogin(payload);
+          return this.loginLocal(payload);
         }
         return throwError(() => error);
       }),
       tap((response) => {
-        this.storeSession(response.token, this.mapUser(response.user));
-        this.notifications.requestPermission();
+        this.armazenarSessao(response.token, this.mapearUsuario(response.user));
+        this.notifications.solicitarPermissao();
       }),
-      map((response) => this.mapUser(response.user))
+      map((response) => this.mapearUsuario(response.user))
     );
   }
 
-  logout(): void {
+  sair(): void {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     this._token.set(null);
     this._user.set(null);
   }
 
-  getToken(): string | null {
+  obterToken(): string | null {
     return this._token();
   }
 
-  private localLogin(payload: LoginPayload): Observable<LoginResponse> {
+  private loginLocal(payload: LoginPayload): Observable<LoginResponse> {
     const found = MOCK_USERS.find(
       (user) => user.username.toLowerCase() === payload.username.toLowerCase() && user.password === payload.password
     );
@@ -88,19 +88,19 @@ export class AuthService {
     };
 
     return of({
-      token: this.generateMockToken(found.username),
+      token: this.gerarTokenFalso(found.username),
       user
     });
   }
 
-  private storeSession(token: string, user: User): void {
+  private armazenarSessao(token: string, user: User): void {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     this._token.set(token);
     this._user.set(user);
   }
 
-  private readUserFromStorage(): User | null {
+  private lerUsuarioDoStorage(): User | null {
     const raw = localStorage.getItem(USER_KEY);
 
     if (!raw) {
@@ -115,7 +115,7 @@ export class AuthService {
     }
   }
 
-  private mapUser(raw: LoginResponse['user']): User {
+  private mapearUsuario(raw: LoginResponse['user']): User {
     return {
       id: raw.id,
       username: raw.username,
@@ -124,7 +124,7 @@ export class AuthService {
     };
   }
 
-  private generateMockToken(username: string): string {
+  private gerarTokenFalso(username: string): string {
     return btoa(`${username}:${Date.now()}`);
   }
 }

@@ -91,17 +91,17 @@ export class ChatWebSocketService {
     effect(() => {
       const user = this.authService.currentUser();
       if (!user) {
-        this.disconnect();
+        this.desconectar();
       }
     });
   }
 
-  connect(): void {
+  conectar(): void {
     if (this.stompClient?.active) {
       return;
     }
 
-    const token = this.authService.getToken();
+    const token = this.authService.obterToken();
     this.stompClient = new Client({
       webSocketFactory: () => new SockJS(environment.wsUrl),
       connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
@@ -111,19 +111,19 @@ export class ChatWebSocketService {
       onConnect: () => {
         this._connected.set(true);
         this.reconnectAttempts = 0;
-        this.startHeartbeat();
-        this.startOnlineUsersPolling();
-        this.subscribeUserQueues();
-        this.flushQueue();
+        this.iniciarTentativaDeConexão();
+        this.verificarQuantidadeUsuariosOnline();
+        this.adicionarRequisicoesEmFila();
+        this.descarregarFila();
         this.stompClient?.publish({ destination: '/app/user.online', body: '{}' });
       },
-      onWebSocketClose: () => this.handleDisconnected(),
-      onStompError: () => this.handleDisconnected()
+      onWebSocketClose: () => this.desconectarWebSocketComErro(),
+      onStompError: () => this.desconectarWebSocketComErro()
     });
     this.stompClient.activate();
   }
 
-  disconnect(): void {
+  desconectar(): void {
     this.heartbeatSubscription?.unsubscribe();
     this.reconnectSubscription?.unsubscribe();
     this.onlineUsersSubscription?.unsubscribe();
@@ -139,8 +139,8 @@ export class ChatWebSocketService {
     this._typingByUserId.set({});
   }
 
-  conversationSignal(withUserId: string): WritableSignal<ChatMessage[]> {
-    const known = this._conversationStreams().get(withUserId);
+  obterSinalDeConversa(comUsuarioId: string): WritableSignal<ChatMessage[]> {
+    const known = this._conversationStreams().get(comUsuarioId);
     if (known) {
       return known;
     }
@@ -148,30 +148,30 @@ export class ChatWebSocketService {
     const nextSignal = signal<ChatMessage[]>([]);
     this._conversationStreams.update((value) => {
       const updated = new Map(value);
-      updated.set(withUserId, nextSignal);
+      updated.set(comUsuarioId, nextSignal);
       return updated;
     });
 
     return nextSignal;
   }
 
-  mergeConversationHistory(withUserId: string, history: ChatMessage[]): void {
-    const stream = this.conversationSignal(withUserId);
-    const orderedHistory = [...history].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  mesclarHistoricoDeConversa(comUsuarioId: string, historico: ChatMessage[]): void {
+    const stream = this.obterSinalDeConversa(comUsuarioId);
+    const orderedHistory = [...historico].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
     stream.set(orderedHistory.slice(-50));
   }
 
-  resolveDisplayName(userId: string): string {
-    if (!userId) {
+  resolverNomeExibicao(usuarioId: string): string {
+    if (!usuarioId) {
       return 'Contato';
     }
 
     const currentUser = this.authService.currentUser();
-    if (currentUser?.id === userId) {
+    if (currentUser?.id === usuarioId) {
       return currentUser.displayName ?? currentUser.username;
     }
 
-    const knownUser = this._usersOnline().find((user) => user.id === userId);
+    const knownUser = this._usersOnline().find((user) => user.id === usuarioId);
     if (knownUser) {
       return knownUser.displayName || knownUser.username || 'Contato';
     }
@@ -179,136 +179,136 @@ export class ChatWebSocketService {
     return 'Contato';
   }
 
-  loadHistory(withUserId: string, limit = 50): Observable<ChatMessage[]> {
-    return this.ensureConversation(withUserId).pipe(
+  carregarHistorico(comUsuarioId: string, limite = 50): Observable<ChatMessage[]> {
+    return this.garantirConversa(comUsuarioId).pipe(
       switchMap((conversationId) =>
-        this.http.get<MessageResponse[]>(`${environment.apiUrl}/conversations/${conversationId}/messages?page=0&size=${limit}`).pipe(
-          map((history) => history.map((message) => this.mapMessageResponse(message, withUserId))),
-          tap((history) => this.mergeConversationHistory(withUserId, history))
+        this.http.get<MessageResponse[]>(`${environment.apiUrl}/conversations/${conversationId}/messages?page=0&size=${limite}`).pipe(
+          map((history) => history.map((message) => this.mapearRespostaDeMsg(message, comUsuarioId))),
+          tap((history) => this.mesclarHistoricoDeConversa(comUsuarioId, history))
         )
       ),
       catchError(() => of([]))
     );
   }
 
-  sendMessage(payload: ChatMessage): void {
-    this.emitOrQueue({ type: 'MESSAGE', payload });
+  enviarMensagem(payload: ChatMessage): void {
+    this.emitirOuEnfileirar({ type: 'MESSAGE', payload });
   }
 
-  sendChatRequest(from: User, toUserId: string): void {
-    this.emitOrQueue({
+  enviarSolicitacaoDeChat(de: User, paraUsuarioId: string): void {
+    this.emitirOuEnfileirar({
       type: 'CHAT_REQUEST',
-      payload: { from, toUserId }
+      payload: { from: de, toUserId: paraUsuarioId }
     });
   }
 
-  sendTyping(toUserId: string, userId: string, isTyping: boolean): void {
-    this.emitOrQueue({
+  enviarEscrita(paraUsuarioId: string, usuarioId: string, estaEscrevendo: boolean): void {
+    this.emitirOuEnfileirar({
       type: 'TYPING',
-      payload: { userId, isTyping, toUserId }
+      payload: { userId: usuarioId, isTyping: estaEscrevendo, toUserId: paraUsuarioId }
     });
   }
 
-  private emitOrQueue(event: OutboundWsEvent): void {
+  private emitirOuEnfileirar(evento: OutboundWsEvent): void {
     if (!this.stompClient || !this.stompClient.connected || !this._connected()) {
-      this.pendingQueue.push(event);
-      this.connect();
+      this.pendingQueue.push(evento);
+      this.conectar();
       return;
     }
 
-    this.publishEvent(event);
+    this.publicarEvento(evento);
   }
 
-  private flushQueue(): void {
+  private descarregarFila(): void {
     if (!this.stompClient || !this.stompClient.connected) {
       return;
     }
 
     while (this.pendingQueue.length > 0) {
-      const event = this.pendingQueue.shift();
-      if (event) {
-        this.publishEvent(event);
+      const evento = this.pendingQueue.shift();
+      if (evento) {
+        this.publicarEvento(evento);
       }
     }
   }
 
-  private publishEvent(event: OutboundWsEvent): void {
-    if (event.type === 'PING' || !this.stompClient?.connected) {
+  private publicarEvento(evento: OutboundWsEvent): void {
+    if (evento.type === 'PING' || !this.stompClient?.connected) {
       return;
     }
 
-    if (event.type === 'MESSAGE') {
-      if (!event.payload.toUserId) {
+    if (evento.type === 'MESSAGE') {
+      if (!evento.payload.toUserId) {
         return;
       }
 
-      void this.ensureConversation(event.payload.toUserId).subscribe((conversationId) => {
-        this.subscribeConversation(conversationId, event.payload.toUserId);
+      void this.garantirConversa(evento.payload.toUserId).subscribe((conversationId) => {
+        this.inscreverEmConversa(conversationId, evento.payload.toUserId);
         this.stompClient?.publish({
           destination: '/app/chat.send',
           body: JSON.stringify({
             type: 'MESSAGE',
             conversationId,
-            fromUserId: event.payload.fromUserId,
-            toUserId: event.payload.toUserId,
-            content: event.payload.content,
-            sentAt: event.payload.timestamp,
-            messageId: event.payload.id
+            fromUserId: evento.payload.fromUserId,
+            toUserId: evento.payload.toUserId,
+            content: evento.payload.content,
+            sentAt: evento.payload.timestamp,
+            messageId: evento.payload.id
           })
         });
       });
       return;
     }
 
-    if (event.type === 'CHAT_REQUEST') {
-      if (!event.payload.toUserId) {
+    if (evento.type === 'CHAT_REQUEST') {
+      if (!evento.payload.toUserId) {
         return;
       }
-      void this.ensureConversation(event.payload.toUserId).subscribe(() => {
+      void this.garantirConversa(evento.payload.toUserId).subscribe(() => {
         this.stompClient?.publish({
           destination: '/app/chat.request',
           body: JSON.stringify({
             type: 'CHAT_REQUEST',
-            fromUserId: event.payload.from.id,
-            toUserId: event.payload.toUserId
+            fromUserId: evento.payload.from.id,
+            toUserId: evento.payload.toUserId
           })
         });
       });
       return;
     }
 
-    if (event.type === 'TYPING') {
-      if (!event.payload.toUserId) {
+    if (evento.type === 'TYPING') {
+      if (!evento.payload.toUserId) {
         return;
       }
-      void this.ensureConversation(event.payload.toUserId).subscribe((conversationId) => {
+      void this.garantirConversa(evento.payload.toUserId).subscribe((conversationId) => {
         this.stompClient?.publish({
           destination: '/app/chat.typing',
           body: JSON.stringify({
             type: 'TYPING',
             conversationId,
-            fromUserId: event.payload.userId,
-            typing: event.payload.isTyping
+            fromUserId: evento.payload.userId,
+            typing: evento.payload.isTyping
           })
         });
       });
     }
   }
 
-  private subscribeConversation(conversationId: string, withUserId: string): void {
-    if (!this.stompClient?.connected || this.conversationSubscriptions.has(conversationId)) {
+  private inscreverEmConversa(idConversa: string, comUsuarioId: string): void {
+    if (!this.stompClient?.connected || this.conversationSubscriptions.has(idConversa)) {
       return;
     }
 
-    this.conversationByUserId.update((value) => ({ ...value, [withUserId]: conversationId }));
-    this.userByConversationId.update((value) => ({ ...value, [conversationId]: withUserId }));
-    this.conversationSubscriptions.add(conversationId);
+    this.conversationByUserId.update((value) => ({ ...value, [comUsuarioId]: idConversa }));
+    this.userByConversationId.update((value) => ({ ...value, [idConversa]: comUsuarioId }));
+    this.conversationSubscriptions.add(idConversa);
   }
 
-  private ensureConversation(withUserId: string): Observable<string> {
-    const known = this.conversationByUserId()[withUserId];
+  private garantirConversa(comUsuarioId: string): Observable<string> {
+    const known = this.conversationByUserId()[comUsuarioId];
     if (known) {
-      this.subscribeConversation(known, withUserId);
+      this.inscreverEmConversa(known, comUsuarioId);
       return of(known);
     }
 
@@ -320,33 +320,33 @@ export class ChatWebSocketService {
     return this.http
       .post<ConversationResponse>(`${environment.apiUrl}/conversations`, {
         userAId: me.id,
-        userBId: withUserId
+        userBId: comUsuarioId
       })
       .pipe(
         map((conversation) => conversation.id),
-        tap((conversationId) => this.subscribeConversation(conversationId, withUserId))
+        tap((conversationId) => this.inscreverEmConversa(conversationId, comUsuarioId))
       );
   }
 
-  private startOnlineUsersPolling(): void {
+  private verificarQuantidadeUsuariosOnline(): void {
     this.onlineUsersSubscription?.unsubscribe();
     this.onlineUsersSubscription = timer(0, 10000)
       .pipe(
         switchMap(() => this.http.get<UserResponse[]>(`${environment.apiUrl}/users/online`).pipe(catchError(() => of([]))))
       )
-      .subscribe((users) => {
+      .subscribe((usuarios) => {
         this._usersOnline.set(
-          users.map((user) => ({
-            id: user.id,
-            username: user.username,
-            displayName: user.username,
-            online: user.status === 'ONLINE'
+          usuarios.map((usuario) => ({
+            id: usuario.id,
+            username: usuario.username,
+            displayName: usuario.username,
+            online: usuario.status === 'ONLINE'
           }))
         );
       });
   }
 
-  private subscribeUserQueues(): void {
+  private adicionarRequisicoesEmFila(): void {
     if (!this.stompClient?.connected) {
       return;
     }
@@ -365,9 +365,9 @@ export class ChatWebSocketService {
         this.conversationByUserId.update((value) => ({ ...value, [withUserId]: raw.conversationId }));
         this.userByConversationId.update((value) => ({ ...value, [raw.conversationId]: withUserId }));
 
-        const message = this.mapIncomingMessage(raw, withUserId);
-        this.pushMessageIntoStream(message);
-        this.eventBus.next({ type: 'MESSAGE', payload: message });
+        const mensagem = this.mapearMensagemRecebida(raw, withUserId);
+        this.inserirMensagemEmFluxo(mensagem);
+        this.eventBus.next({ type: 'MESSAGE', payload: mensagem });
       });
     }
 
@@ -375,24 +375,24 @@ export class ChatWebSocketService {
       this.userNotificationsSubscription = this.stompClient.subscribe('/user/queue/notifications', (frame) => {
         const event = JSON.parse(frame.body) as unknown;
 
-        if (this.isChatRequestEvent(event)) {
-          this.handleChatRequest(event);
+        if (this.ehEventoDeSolicitacaoDeChat(event)) {
+          this.tratarSolicitacaoDeChat(event);
           return;
         }
 
-        if (this.isTypingEvent(event)) {
-          this.handleTypingEvent(event);
+        if (this.ehEventoDeEscrita(event)) {
+          this.tratarEventoDeEscrita(event);
         }
       });
     }
   }
 
-  private isChatRequestEvent(event: unknown): event is BackendChatRequestEvent {
-    if (!event || typeof event !== 'object') {
+  private ehEventoDeSolicitacaoDeChat(evento: unknown): evento is BackendChatRequestEvent {
+    if (!evento || typeof evento !== 'object') {
       return false;
     }
 
-    const payload = event as Record<string, unknown>;
+    const payload = evento as Record<string, unknown>;
     return (
       payload['type'] === 'CHAT_REQUEST' &&
       typeof payload['fromUserId'] === 'string' &&
@@ -400,12 +400,12 @@ export class ChatWebSocketService {
     );
   }
 
-  private isTypingEvent(event: unknown): event is BackendTypingEvent {
-    if (!event || typeof event !== 'object') {
+  private ehEventoDeEscrita(evento: unknown): evento is BackendTypingEvent {
+    if (!evento || typeof evento !== 'object') {
       return false;
     }
 
-    const payload = event as Record<string, unknown>;
+    const payload = evento as Record<string, unknown>;
     return (
       payload['type'] === 'TYPING' &&
       typeof payload['conversationId'] === 'string' &&
@@ -414,67 +414,67 @@ export class ChatWebSocketService {
     );
   }
 
-  private handleChatRequest(event: BackendChatRequestEvent): void {
+  private tratarSolicitacaoDeChat(evento: BackendChatRequestEvent): void {
     const me = this.authService.currentUser();
-    if (!me || event.toUserId !== me.id || event.fromUserId === me.id) {
+    if (!me || evento.toUserId !== me.id || evento.fromUserId === me.id) {
       return;
     }
 
-    const fromUser = this._usersOnline().find((user) => user.id === event.fromUserId) ?? {
-      id: event.fromUserId,
-      username: this.resolveDisplayName(event.fromUserId),
-      displayName: this.resolveDisplayName(event.fromUserId),
+    const usuarioDe = this._usersOnline().find((user) => user.id === evento.fromUserId) ?? {
+      id: evento.fromUserId,
+      username: this.resolverNomeExibicao(evento.fromUserId),
+      displayName: this.resolverNomeExibicao(evento.fromUserId),
       online: true
     };
 
     this.eventBus.next({
       type: 'CHAT_REQUEST',
-      payload: { from: fromUser, toUserId: event.toUserId }
+      payload: { from: usuarioDe, toUserId: evento.toUserId }
     });
   }
 
-  private handleTypingEvent(event: BackendTypingEvent): void {
+  private tratarEventoDeEscrita(evento: BackendTypingEvent): void {
     const me = this.authService.currentUser();
-    if (!me || event.fromUserId === me.id) {
+    if (!me || evento.fromUserId === me.id) {
       return;
     }
 
-    const knownWithUserId = this.userByConversationId()[event.conversationId];
-    const withUserId = knownWithUserId ?? event.fromUserId;
+    const usuarioConhecidoId = this.userByConversationId()[evento.conversationId];
+    const comUsuarioId = usuarioConhecidoId ?? evento.fromUserId;
 
-    this.conversationByUserId.update((value) => ({ ...value, [withUserId]: event.conversationId }));
-    this.userByConversationId.update((value) => ({ ...value, [event.conversationId]: withUserId }));
+    this.conversationByUserId.update((value) => ({ ...value, [comUsuarioId]: evento.conversationId }));
+    this.userByConversationId.update((value) => ({ ...value, [evento.conversationId]: comUsuarioId }));
     this._typingByUserId.update((value) => ({
       ...value,
-      [event.fromUserId]: event.typing
+      [evento.fromUserId]: evento.typing
     }));
-    this.eventBus.next({ type: 'TYPING', payload: { userId: event.fromUserId, isTyping: event.typing } });
+    this.eventBus.next({ type: 'TYPING', payload: { userId: evento.fromUserId, isTyping: evento.typing } });
   }
 
-  private pushMessageIntoStream(message: ChatMessage): void {
-    const selfId = this.authService.currentUser()?.id;
-    if (!selfId) {
+  private inserirMensagemEmFluxo(mensagem: ChatMessage): void {
+    const meuId = this.authService.currentUser()?.id;
+    if (!meuId) {
       return;
     }
 
-    const withUserId = message.fromUserId === selfId ? message.toUserId : message.fromUserId;
-    const stream = this.conversationSignal(withUserId);
+    const comUsuarioId = mensagem.fromUserId === meuId ? mensagem.toUserId : mensagem.fromUserId;
+    const stream = this.obterSinalDeConversa(comUsuarioId);
     stream.update((value) => {
-      const withoutSameId = value.filter((item) => item.id !== message.id);
-      return [...withoutSameId, message].slice(-200);
+      const withoutSameId = value.filter((item) => item.id !== mensagem.id);
+      return [...withoutSameId, mensagem].slice(-200);
     });
   }
 
-  private startHeartbeat(): void {
+  private iniciarTentativaDeConexão(): void {
     this.heartbeatSubscription?.unsubscribe();
     this.heartbeatSubscription = timer(30000, 30000).subscribe(() => {
       if (!this.stompClient?.connected) {
-        this.handleDisconnected();
+        this.desconectarWebSocketComErro();
       }
     });
   }
 
-  private handleDisconnected(): void {
+  private desconectarWebSocketComErro(): void {
     this._connected.set(false);
     this.heartbeatSubscription?.unsubscribe();
     this.onlineUsersSubscription?.unsubscribe();
@@ -493,30 +493,30 @@ export class ChatWebSocketService {
 
     this.reconnectSubscription?.unsubscribe();
     this.reconnectSubscription = timer(backoff).subscribe(() => {
-      this.connect();
+      this.conectar();
     });
   }
 
-  private mapMessageResponse(message: MessageResponse, withUserId: string): ChatMessage {
+  private mapearRespostaDeMsg(mensagem: MessageResponse, comUsuarioId: string): ChatMessage {
     const me = this.authService.currentUser();
     return {
-      id: message.id,
-      fromUserId: message.fromUserId,
-      toUserId: message.fromUserId === me?.id ? withUserId : me?.id ?? withUserId,
-      content: message.content,
-      timestamp: message.sentAt,
-      status: message.status
+      id: mensagem.id,
+      fromUserId: mensagem.fromUserId,
+      toUserId: mensagem.fromUserId === me?.id ? comUsuarioId : me?.id ?? comUsuarioId,
+      content: mensagem.content,
+      timestamp: mensagem.sentAt,
+      status: mensagem.status
     };
   }
 
-  private mapIncomingMessage(message: BackendMessageEvent, withUserId: string): ChatMessage {
+  private mapearMensagemRecebida(mensagem: BackendMessageEvent, comUsuarioId: string): ChatMessage {
     const me = this.authService.currentUser();
     return {
-      id: message.messageId,
-      fromUserId: message.fromUserId,
-      toUserId: message.fromUserId === me?.id ? withUserId : me?.id ?? withUserId,
-      content: message.content,
-      timestamp: message.sentAt,
+      id: mensagem.messageId,
+      fromUserId: mensagem.fromUserId,
+      toUserId: mensagem.fromUserId === me?.id ? comUsuarioId : me?.id ?? comUsuarioId,
+      content: mensagem.content,
+      timestamp: mensagem.sentAt,
       status: 'SENT'
     };
   }

@@ -35,9 +35,8 @@ export class LoginComponent {
     this.loading.set(true);
     this.errorMessage.set('');
 
-    this.authService
-      .login(this.form.getRawValue())
-      .pipe(finalize(() => this.loading.set(false)))
+    this.authService.entrar(this.form.getRawValue()).pipe(
+      finalize(() => this.loading.set(false)))
       .subscribe({
         next: () => {
           void this.router.navigate(['/lobby']);

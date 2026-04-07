@@ -23,7 +23,7 @@ export class App implements OnDestroy {
   constructor() {
     effect(() => {
       if (this.authService.isAuthenticated()) {
-        this.wsService.connect();
+        this.wsService.conectar();
       }
     });
 
@@ -36,12 +36,12 @@ export class App implements OnDestroy {
         }
 
         if (event.type === 'MESSAGE' && event.payload.fromUserId !== me.id) {
-          const senderName = this.wsService.resolveDisplayName(event.payload.fromUserId);
-          this.notifications.notifyMessage(senderName, event.payload.content, event.payload.fromUserId);
+          const senderName = this.wsService.resolverNomeExibicao(event.payload.fromUserId);
+          this.notifications.notificarMensagem(senderName, event.payload.content, event.payload.fromUserId);
         }
 
         if (event.type === 'CHAT_REQUEST' && event.payload.from.id !== me.id) {
-          this.notifications.notifyChatRequest(event.payload.from.displayName, event.payload.from.id);
+          this.notifications.notificarSolicitacaoDeChat(event.payload.from.displayName, event.payload.from.id);
         }
       })
     );

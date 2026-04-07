@@ -69,7 +69,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   });
 
   constructor() {
-    this.wsService.connect();
+    this.wsService.conectar();
 
     effect(() => {
       const chatUserId = this.activeUserId();
@@ -77,9 +77,9 @@ export class ChatComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const stream = this.wsService.conversationSignal(chatUserId);
+      const stream = this.wsService.obterSinalDeConversa(chatUserId);
       this.messages.set(stream());
-      this.notifications.clearUnread(chatUserId);
+      this.notifications.limparNaoLidas(chatUserId);
       this.scrollToBottom();
     });
 
@@ -89,7 +89,7 @@ export class ChatComponent implements OnInit, OnDestroy {
         return;
       }
 
-      this.activeUserName.set(this.wsService.resolveDisplayName(chatUserId));
+      this.activeUserName.set(this.wsService.resolverNomeExibicao(chatUserId));
     });
   }
 
@@ -102,8 +102,8 @@ export class ChatComponent implements OnInit, OnDestroy {
         }
 
         this.activeUserId.set(userId);
-        this.activeUserName.set(this.wsService.resolveDisplayName(userId));
-        this.notifications.clearPendingRequest(userId);
+        this.activeUserName.set(this.wsService.resolverNomeExibicao(userId));
+        this.notifications.limparSolicitacaoPendente(userId);
         this.loadHistory(userId);
       })
     );
@@ -115,7 +115,7 @@ export class ChatComponent implements OnInit, OnDestroy {
           return;
         }
 
-        this.wsService.sendTyping(this.activeUserId(), me.id, false);
+        this.wsService.enviarEscrita(this.activeUserId(), me.id, false);
       })
     );
   }
@@ -145,7 +145,7 @@ export class ChatComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.wsService.sendTyping(this.activeUserId(), me.id, true);
+    this.wsService.enviarEscrita(this.activeUserId(), me.id, true);
     this.typingStop$.next();
   }
 
@@ -174,8 +174,8 @@ export class ChatComponent implements OnInit, OnDestroy {
       status: 'SENT'
     };
 
-    this.wsService.sendMessage(message);
-    this.wsService.sendTyping(activeUserId, me.id, false);
+    this.wsService.enviarMensagem(message);
+    this.wsService.enviarEscrita(activeUserId, me.id, false);
     this.draft.set('');
     this.scrollToBottom();
   }
@@ -196,7 +196,7 @@ export class ChatComponent implements OnInit, OnDestroy {
 
     this.subscriptions.add(
       this.wsService
-        .loadHistory(userId, 50)
+        .carregarHistorico(userId, 50)
         .pipe(
           catchError(() => of([])),
           finalize(() => this.loadingHistory.set(false))

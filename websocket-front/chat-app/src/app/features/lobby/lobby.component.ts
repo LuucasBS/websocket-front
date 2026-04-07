@@ -28,7 +28,7 @@ export class LobbyComponent {
   });
 
   constructor() {
-    this.wsService.connect();
+    this.wsService.conectar();
   }
 
   protected trackByUserId(index: number, user: User): string {
@@ -36,7 +36,7 @@ export class LobbyComponent {
   }
 
   protected openChat(user: User): void {
-    this.notifications.clearPendingRequest(user.id);
+    this.notifications.limparSolicitacaoPendente(user.id);
     void this.router.navigate(['/chat', user.id]);
   }
 
@@ -46,12 +46,12 @@ export class LobbyComponent {
       return;
     }
 
-    this.wsService.sendChatRequest(me, user.id);
+    this.wsService.enviarSolicitacaoDeChat(me, user.id);
     this.openChat(user);
   }
 
   protected logout(): void {
-    this.authService.logout();
+    this.authService.sair();
     void this.router.navigate(['/login']);
   }
 
