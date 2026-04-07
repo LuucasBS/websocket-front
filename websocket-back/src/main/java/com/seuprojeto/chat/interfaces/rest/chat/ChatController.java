@@ -31,22 +31,22 @@ public class ChatController {
 
     @PostMapping("/conversations")
     public ConversationResponse createConversation(@Valid @RequestBody ConversationRequest request) {
-        Conversation conversation = chatApplicationService.createOrGetConversation(request.userAId(), request.userBId());
+        Conversation conversation = chatApplicationService.createOrGetConversation(request.userAId(),
+                request.userBId());
         return new ConversationResponse(
-            conversation.id().toString(),
-            conversation.userAId().toString(),
-            conversation.userBId().toString(),
-            conversation.createdAt()
-        );
+                conversation.id().toString(),
+                conversation.userAId().toString(),
+                conversation.userBId().toString(),
+                conversation.createdAt());
     }
 
     @GetMapping("/conversations/{id}/messages")
     public List<MessageResponse> loadMessages(
-        @PathVariable String id,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "50") int size
-    ) {
-        return chatApplicationService.load(new LoadHistoryQuery(id, page, size)).stream().map(this::toResponse).toList();
+            @PathVariable String id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return chatApplicationService.load(new LoadHistoryQuery(id, page, size)).stream().map(this::toResponse)
+                .toList();
     }
 
     @PatchMapping("/messages/{id}/read")
@@ -59,20 +59,18 @@ public class ChatController {
     public MessageResponse sendMessage(@Valid @RequestBody MessageRequest request, Principal principal) {
         String fromUserId = principal == null ? "" : principal.getName();
         return toResponse(
-            chatApplicationService.send(
-                new SendMessageCommand(request.conversationId(), fromUserId, request.toUserId(), request.content())
-            )
-        );
+                chatApplicationService.send(
+                        new SendMessageCommand(request.conversationId(), fromUserId, request.toUserId(),
+                                request.content())));
     }
 
     private MessageResponse toResponse(ChatMessage message) {
         return new MessageResponse(
-            message.id().toString(),
-            message.conversationId().toString(),
-            message.senderId().toString(),
-            message.content(),
-            message.status().name(),
-            message.sentAt()
-        );
+                message.id().toString(),
+                message.conversationId().toString(),
+                message.senderId().toString(),
+                message.content(),
+                message.status().name(),
+                message.sentAt());
     }
 }

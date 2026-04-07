@@ -12,7 +12,6 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { animate, style, transition, trigger } from '@angular/animations';
 import { Subject, Subscription, catchError, debounceTime, finalize, of } from 'rxjs';
 import { AuthService } from '../../core/services/auth.service';
 import { ChatWebSocketService } from '../../core/services/chat-ws.service';
@@ -20,9 +19,11 @@ import { NotificationService } from '../../core/services/notification.service';
 import { ChatMessage } from '../../shared/models/message.model';
 import { ChatHeaderComponent } from './chat-header/chat-header.component';
 import { MessageBubbleComponent } from './message-bubble/message-bubble.component';
+import { transition, style, animate, trigger } from '@angular/animations';
 
 @Component({
   selector: 'app-chat',
+  standalone: true,
   imports: [FormsModule, ChatHeaderComponent, MessageBubbleComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
@@ -49,7 +50,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   private readonly wsService = inject(ChatWebSocketService);
   private readonly notifications = inject(NotificationService);
 
-  private readonly subscriptions = new Subscription();
+  private subscriptions = new Subscription();
   private readonly typingStop$ = new Subject<void>();
 
   protected readonly currentUser = this.authService.currentUser;
@@ -217,3 +218,5 @@ export class ChatComponent implements OnInit, OnDestroy {
     return `${Date.now()}-${Math.round(Math.random() * 100000)}`;
   }
 }
+
+
